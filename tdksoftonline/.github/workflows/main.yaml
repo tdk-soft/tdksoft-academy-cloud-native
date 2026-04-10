@@ -1,0 +1,46 @@
+name: CI/CD Pipeline TDK Soft
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/tdk-backend:${{ github.sha }}
+
+      - name: Set up Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to k3s
+        run: |
+          # On applique d'abord les manifestes (au cas où ils ont changé)
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
+          
+          # On force la mise à jour de l'image avec le nouveau tag (SHA du commit)
+          kubectl set image deployment/tdk-backend backend=${{ secrets.DOCKER_USERNAME }}/tdk-backend:${{ github.sha }} -n tdk-soft
+          
+          # On vérifie que le déploiement se passe bien
+          kubectl rollout status deployment/tdk-backend -n tdk-soft

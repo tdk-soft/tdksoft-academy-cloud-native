@@ -156,3 +156,49 @@ email-validator==2.1.0.post1
 EOF
 
 echo "Project TDK Soft Consulting generated successfully!"
+
+#!/bin/bash
+
+# 1. Création des nouveaux dossiers
+mkdir -p .github/workflows
+mkdir -p k8s
+
+# 2. Déplacement (si nécessaire) du Dockerfile dans backend/
+if [ -f Dockerfile ]; then
+    mv Dockerfile backend/Dockerfile
+fi
+
+# 3. Création des manifestes K8s séparés (plus propre pour la maintenance)
+cat <<EOF > k8s/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tdk-soft
+EOF
+
+# Note: Pour le déploiement, on utilise l'image tagguée par SHA dans le CI/CD
+# Mais voici un template de base
+cat <<EOF > k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tdk-backend
+  namespace: tdk-soft
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tdk-site
+  template:
+    metadata:
+      labels:
+        app: tdk-site
+    spec:
+      containers:
+      - name: backend
+        image: \${DOCKER_IMAGE}
+        ports:
+        - containerPort: 8000
+EOF
+
+echo "Architecture updated for Kubernetes and CI/CD."
