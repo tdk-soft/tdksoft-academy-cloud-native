@@ -1,0 +1,79 @@
+name: CI/CD Pipeline TDK Soft
+
+# Technical documentation:
+# This workflow automates the build, push, and deployment process 
+# for TDK Soft Consulting. It targets a k3s cluster on a remote VPS.
+# Docker images are deployed on my Docker Hub account with username tdksoft341 and a PAT as password.
+# Standards: Google Cloud Native CI/CD best practices.
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    name: Build Image and Deploy to k3s
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for better SHA tracking
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        # Use Buildx for better caching and faster builds
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./tdksoftonline
+          file: ./tdksoftonline/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/tdkacademy-backend:${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/tdkacademy-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Configure Kubernetes Access
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          # Verify connectivity immediately
+          kubectl cluster-info
+
+      - name: Deploy Manifests to Cluster
+        run: |
+          cd tdksoftonline
+          # Apply Namespace first to ensure logical isolation
+          kubectl apply -f k8s/namespace.yaml
+          
+          # Apply core resources
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
+
+      - name: Update Container Image and Rollout
+        run: |
+          # OOP Approach: Atomic update of the deployment image
+          # Using commit SHA for precise versioning and easy rollbacks
+          kubectl set image deployment/tdk-backend backend=${{ secrets.DOCKER_USERNAME }}/tdkacademy-backend:${{ github.sha }} -n tdk-soft
+          
+          # Wait for deployment success with a 5-minute timeout (Google Std)
+          kubectl rollout status deployment/tdk-backend -n tdk-soft --timeout=300s
+
+      - name: Post-Deployment Verification
+        if: success()
+        run: |
+          echo "Deployment successful for commit ${{ github.sha }} on branch ${{ github.ref_name }}"
+          kubectl get pods -n tdk-soft -l app=tdk-site

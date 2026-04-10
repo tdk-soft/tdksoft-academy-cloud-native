@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tdk-backend
+  namespace: tdk-soft
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tdk-site
+  template:
+    metadata:
+      labels:
+        app: tdk-site
+    spec:
+      containers:
+      - name: backend 
+        image: python:3.10-slim # Temporary Image, ill be replace by the CI
+        ports:
+        - containerPort: 8000
